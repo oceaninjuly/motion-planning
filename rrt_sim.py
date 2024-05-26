@@ -104,13 +104,13 @@ class RRT:
                         queue += current.kids
                             
                             
-    def rrt_planning(self, start, goal, animation=True):
+    def rrt_planning(self, start, goal, animation=True,nd=None,ne=None):
         self.min_path_len = float('inf')
         path_list = []
         self.start = Node(start[0], start[1])
         self.goal = Node(goal[0], goal[1])
-        self.node_list = [self.start]
-        self.near_list = []
+        self.node_list = [self.start] if nd is None else nd
+        self.near_list = [] if ne is None else ne
         path = None
         chg_flag = False
         self.connect = False
@@ -154,11 +154,11 @@ class RRT:
                 
                 for i in range(len(self.near_list)):
                     near_node,cost = self.near_list[i]
-                    if cost is None or cost < self.min_path_len:
+                    if cost is None or cost+near_node.cost < self.min_path_len:
                         path = self.get_final_course(near_node)        # 回溯路径
                         path_length = self.get_path_len(path)           # 计算路径的长度
                         print("当前的路径长度为：{}".format(path_length))
-                        self.near_list[i] = (near_node,path_length)
+                        self.near_list[i] = (near_node,path_length-near_node.cost)
                         self.min_path_len = path_length if path_length < self.min_path_len else self.min_path_len
                         if animation:
                             self.draw_graph(new_node, path)
@@ -309,6 +309,52 @@ class RRT:
             node2_y = path[i - 1][1]
             path_length += math.sqrt((node1_x - node2_x) ** 2 + (node1_y - node2_y) ** 2)
         return path_length
+    
+    def dynamic_planning(self):
+        back_up = [[self.node_list[i],True] for i in range(len(self.node_list))]
+        new_near_list = []
+        new_node_list = []
+        for i,(node,flag) in enumerate(back_up):
+            if flag == False:
+                queue = []+node.kids
+                for j in queue:
+                    back_up[j][1] = False
+                    queue+=back_up[j][0].kids
+                continue
+                    
+            for j in node.kids:
+                kid = back_up[j][0]
+                if not self.check_segment_collision(node.x, node.y,
+                    kid.x, kid.y):
+                    back_up[j][1] = False
+                    queue = []+back_up[j][0].kids
+                    for k in queue:
+                        back_up[k][1] = False
+                        queue+=back_up[k][0].kids
+        
+        index_map = {}
+        counter = 0
+        for i,(node,flag) in enumerate(back_up):
+            if flag == True:
+                index_map[i] = counter
+                counter += 1
+
+        new_node_list = [None for _ in range(counter)]
+        
+        for i,(node,flag) in enumerate(back_up):
+            if flag == True:
+                ni = index_map[i]
+                new_node_list[ni] = copy.deepcopy(node)
+                if not node.parent is None:
+                    new_node_list[ni].parent = index_map[node.parent]
+                new_node_list[ni].kids = [index_map[j] for j in node.kids if j in index_map.keys()]
+
+                if self.is_near_goal(node):
+                    if self.check_segment_collision(node.x, node.y,
+                            self.goal.x, self.goal.y):
+                        new_near_list.append((new_node_list[ni],None))
+        
+        self.rrt_planning((self.start.x,self.start.y),(self.goal.x,self.goal.y),nd=new_node_list,ne=new_near_list)
 
 
 class Node:
@@ -333,9 +379,15 @@ def main():
         (3, 9, 2),
         (9, 11, 2)
     ]
-
     rrt = RRT(rand_area=[-2, 18], obstacle_list=obstacle_list, max_iter=200)
+    freq = 0.05
     path = rrt.rrt_planning(start=[0, 0], goal=[15, 12], animation=show_animation)
+    print('Done!')
+    if show_animation and path:
+        plt.show()
+    freq = 0.1
+    rrt.obstacle_list.append((5.0,1.0,2))
+    rrt.dynamic_planning()
     print('Done!')
     if show_animation and path:
         plt.show()
